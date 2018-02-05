@@ -4,13 +4,19 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.Bundle;
 import android.support.v4.content.LocalBroadcastManager;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
+import android.view.View;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import org.deviceconnect.message.DConnectEventMessage;
 import org.deviceconnect.message.DConnectMessage;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import java.util.logging.Logger;
 
 
@@ -42,9 +48,9 @@ public class SampleActivity extends AppCompatActivity {
                 float y = acceleration.getFloat("y");
                 float z = acceleration.getFloat("z");
 
-                log("x = " + x + ", " +
-                    "y = " + y + ", " +
-                    "z = " + z + ", ");
+                log("x = " + String.format(Locale.ENGLISH, "%.2f", x) + ", " +
+                    "y = " + String.format(Locale.ENGLISH, "%.2f", y) + ", " +
+                    "z = " + String.format(Locale.ENGLISH, "%.2f", z));
             }
         }
     };
@@ -68,12 +74,20 @@ public class SampleActivity extends AppCompatActivity {
      */
     private LocalBroadcastManager mLocalBroadcast;
 
+    /**
+     * 通信ログを表示するビュー.
+     */
+    private LinearLayout mLogView;
+
+    private SimpleDateFormat mDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SS", Locale.JAPAN);
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
         mLocalBroadcast = LocalBroadcastManager.getInstance(getApplicationContext());
+        mLogView = findViewById(R.id.log_view);
     }
 
     @Override
@@ -98,7 +112,28 @@ public class SampleActivity extends AppCompatActivity {
         super.onPause();
     }
 
-    private void log(final String message) {
+    private synchronized void log(final String message) {
+        // 画面上にログを追加.
+        int count = mLogView.getChildCount();
+        if (count >= 100) {
+            mLogView.removeViewAt(count - 1);
+        }
+        mLogView.addView(createView(currentTime() + ": " + message), 0);
+
         mLogger.info(message);
+    }
+
+    private View createView(final String message) {
+        TextView view = new TextView(getApplicationContext());
+        view.setText(message);
+        view.setTextColor(getResources().getColor(R.color.black));
+        view.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        return view;
+    }
+
+    private String currentTime() {
+        return mDateFormat.format(new Date());
     }
 }

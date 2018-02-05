@@ -83,7 +83,8 @@ public class SampleService extends Service {
     public int onStartCommand(final Intent intent, final int flags, final int startId) {
         if (intent != null) {
             if (ACTION_REQUEST_EVENT.equals(intent.getAction())) {
-                final String path = intent.getStringExtra(EXTRA_PATH);
+                final String pathExp = intent.getStringExtra(EXTRA_PATH);
+                final DConnectPath path = DConnectPath.parse(pathExp);;
                 if (path != null) {
                     mExecutors.execute(new Runnable() {
                         @Override
@@ -93,7 +94,7 @@ public class SampleService extends Service {
                             log("Manager is available.");
 
                             // 指定されたAPIをサポートするサービスが見つかるまで待機.
-                            Device targetDevice = acquireTargetService(DConnectPath.parse(path));
+                            Device targetDevice = acquireTargetService(path);
                             if (targetDevice != null) {
                                 log("Target device is found: serviceId = " + targetDevice.getName());
 
@@ -101,7 +102,7 @@ public class SampleService extends Service {
                                 connectWebSocket();
 
                                 // イベント開始要求.
-                                requestEvent(targetDevice);
+                                requestEvent(targetDevice, path);
                             }
                         }
                     });
@@ -205,12 +206,15 @@ public class SampleService extends Service {
      * Device Web API Managerに対してイベント登録要求を送信する.
      *
      * @param device デバイス情報
+     * @param path APIパス
      */
-    private void requestEvent(final Device device) {
+    private void requestEvent(final Device device, final DConnectPath path) {
         DConnectSDK.URIBuilder uriBuilder = mSDK.createURIBuilder();
         uriBuilder.setServiceId(device.getId());
-        uriBuilder.setProfile("deviceOrientation");
-        uriBuilder.setAttribute("onDeviceOrientation");
+        uriBuilder.setApi(path.getApiName());
+        uriBuilder.setProfile(path.getProfileName());
+        uriBuilder.setInterface(path.getInterfaceName());
+        uriBuilder.setAttribute(path.getAttributeName());
         uriBuilder.addParameter("interval", "500");
         mSDK.addEventListener(uriBuilder.build(), mEventListener);
     }
