@@ -20,6 +20,11 @@ import java.util.logging.Logger;
 public class SampleActivity extends AppCompatActivity {
 
     /**
+     * リクエストするAPIのパス名.
+     */
+    private static final String EVENT_API_PATH = "/gotapi/deviceOrientation/onDeviceOrientation"; // 加速度センサー値
+
+    /**
      * {@link SampleService} からのブロードキャストを受信するリスナー.
      *
      * ブロードキャストの中に、Device Web API Managerからのイベントが格納されている.
@@ -27,7 +32,7 @@ public class SampleActivity extends AppCompatActivity {
     private final BroadcastReceiver mLocalBroadcastReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(final Context context, final Intent intent) {
-            if (SampleService.ACTION_EVENT.equals(intent.getAction())) {
+            if (SampleService.ACTION_NOTIFY_EVENT.equals(intent.getAction())) {
                 DConnectEventMessage event = (DConnectEventMessage) intent.getSerializableExtra(SampleService.EXTRA_EVENT);
 
                 // PUT /gotapi/deviceOrientation/onDeviceOrientation で定義されているイベントの内容を解析.
@@ -50,7 +55,7 @@ public class SampleActivity extends AppCompatActivity {
     private final IntentFilter mIntentFilter;
     {
         mIntentFilter = new IntentFilter();
-        mIntentFilter.addAction(SampleService.ACTION_EVENT);
+        mIntentFilter.addAction(SampleService.ACTION_NOTIFY_EVENT);
     }
 
     /**
@@ -78,6 +83,8 @@ public class SampleActivity extends AppCompatActivity {
         mLocalBroadcast.registerReceiver(mLocalBroadcastReceiver, mIntentFilter);
 
         Intent intent = new Intent(getApplicationContext(), SampleService.class);
+        intent.setAction(SampleService.ACTION_REQUEST_EVENT);
+        intent.putExtra(SampleService.EXTRA_PATH, EVENT_API_PATH);
         startService(intent);
     }
 

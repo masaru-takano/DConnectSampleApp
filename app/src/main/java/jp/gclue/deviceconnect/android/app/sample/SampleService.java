@@ -15,6 +15,8 @@ import org.deviceconnect.profile.ServiceDiscoveryProfileConstants;
 import org.deviceconnect.profile.ServiceInformationProfileConstants;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.logging.Logger;
 
 
@@ -23,7 +25,11 @@ import java.util.logging.Logger;
  */
 public class SampleService extends Service {
 
-    static final String ACTION_EVENT = "jp.gclue.deviceconnect.android.app.sample.action.EVENT";
+    static final String ACTION_REQUEST_EVENT = "jp.gclue.deviceconnect.android.app.sample.action.REQUEST_EVENT";
+
+    static final String EXTRA_PATH = "path";
+
+    static final String ACTION_NOTIFY_EVENT = "jp.gclue.deviceconnect.android.app.sample.action.EVENT";
 
     static final String EXTRA_EVENT = "event";
 
@@ -35,7 +41,7 @@ public class SampleService extends Service {
     /**
      * Device Web API Managerと通信するスレッド.
      */
-    private Thread mThread;
+    private ExecutorService mExecutors = Executors.newFixedThreadPool(4);
 
     /**
      * Device Web API Managerからのイベントを受信するリスナー.
@@ -63,53 +69,86 @@ public class SampleService extends Service {
         // SDKの初期化.
         mSDK = DConnectSDKFactory.create(getApplicationContext(), DConnectSDKFactory.Type.HTTP);
         mSDK.setOrigin(getPackageName());
+    }
 
-        mThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                Device targetDevice = acquireTargetService("deviceOrientation");
-                log("Target device is found: serviceId = " + targetDevice.getName());
+    @Override
+    public void onDestroy() {
+        mExecutors.shutdown();
+        mExecutors = null;
 
-                connectWebSocket();
-                requestEvent(targetDevice);
+        super.onDestroy();
+    }
+
+    @Override
+    public int onStartCommand(final Intent intent, final int flags, final int startId) {
+        if (intent != null) {
+            if (ACTION_REQUEST_EVENT.equals(intent.getAction())) {
+                final String path = intent.getStringExtra(EXTRA_PATH);
+                if (path != null) {
+                    mExecutors.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            // Device Web API Managerの起動を待機.
+                            waitManagerStart();
+                            log("Manager is available.");
+
+                            // 指定されたAPIをサポートするサービスが見つかるまで待機.
+                            Device targetDevice = acquireTargetService(DConnectPath.parse(path));
+                            if (targetDevice != null) {
+                                log("Target device is found: serviceId = " + targetDevice.getName());
+
+                                // WebSocket接続.
+                                connectWebSocket();
+
+                                // イベント開始要求.
+                                requestEvent(targetDevice);
+                            }
+                        }
+                    });
+                }
             }
-        });
-        mThread.start();
+        }
+        return START_STICKY;
     }
 
     /**
      * ServiceDiscoveryを実行し、使用したいデバイスの情報をサービス一覧より取得する.
      *
      * サービス一覧に使用したいデバイスが含まれていない場合、サービス一覧に追加されるまでスレッドをブロックする.
+     * （ただし、ブロック中に割り込みが入った場合は、null を返す.）
      *
-     * @param profileName プロファイル名
+     * @param path リクエストパス
      * @return デバイス情報
      */
-    private Device acquireTargetService(final String profileName) {
-        waitManagerStart();
-        log("Manager is available.");
-
-        while (true) {
-            DConnectResponseMessage response = mSDK.serviceDiscovery();
-            if (response.getResult() != DConnectMessage.RESULT_OK) {
-                continue;
-            }
-            List<Object> services = response.getList(ServiceDiscoveryProfileConstants.PARAM_SERVICES);
-            if (services != null) {
-                for (Object obj : services) {
-                    if (obj instanceof DConnectMessage) {
-                        DConnectMessage service = (DConnectMessage) obj;
-                        String serviceId = service.getString(ServiceDiscoveryProfileConstants.PARAM_ID);
-                        String name = service.getString(ServiceDiscoveryProfileConstants.PARAM_NAME);
-                        if (serviceId != null && name != null) {
-                            if (isSupported(serviceId, profileName)) {
-                                return new Device(serviceId, name);
+    private Device acquireTargetService(final DConnectPath path) {
+        try {
+            while (!Thread.interrupted()) {
+                DConnectResponseMessage response = mSDK.serviceDiscovery();
+                if (response.getResult() != DConnectMessage.RESULT_OK) {
+                    continue;
+                }
+                List<Object> services = response.getList(ServiceDiscoveryProfileConstants.PARAM_SERVICES);
+                if (services != null) {
+                    for (Object obj : services) {
+                        if (obj instanceof DConnectMessage) {
+                            DConnectMessage service = (DConnectMessage) obj;
+                            String serviceId = service.getString(ServiceDiscoveryProfileConstants.PARAM_ID);
+                            String name = service.getString(ServiceDiscoveryProfileConstants.PARAM_NAME);
+                            if (serviceId != null && name != null) {
+                                if (isSupported(serviceId, path)) {
+                                    return new Device(serviceId, name);
+                                }
                             }
                         }
                     }
                 }
+
+                Thread.sleep(500);
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt(); // 割り込み状態の復元
         }
+        return null;
     }
 
     /**
@@ -146,18 +185,16 @@ public class SampleService extends Service {
         });
     }
 
-    private boolean isSupported(final String serviceId, final String profileName) {
+    private boolean isSupported(final String serviceId, final DConnectPath path) {
         DConnectResponseMessage response = mSDK.getServiceInformation(serviceId);
         if (response.getResult() == DConnectMessage.RESULT_OK) {
-            List<Object> supports = response.getList(ServiceInformationProfileConstants.PARAM_SUPPORTS);
-            if (supports != null) {
-                for (Object obj : supports) {
-                    if (obj instanceof String) {
-                        String scope = (String) obj;
-                        if (profileName.equals(scope)) {
-                            return true;
-                        }
-                    }
+            DConnectMessage supportApis = response.getMessage(ServiceInformationProfileConstants.PARAM_SUPPORT_APIS);
+            if (supportApis != null) {
+                DConnectMessage profileDefinition = supportApis.getMessage(path.getProfileName());
+                if (profileDefinition != null) {
+                    DConnectMessage paths = profileDefinition.getMessage("paths");
+                    DConnectMessage apiDefinition = paths.getMessage(path.getSubPath());
+                    return apiDefinition != null;
                 }
             }
         }
@@ -174,6 +211,7 @@ public class SampleService extends Service {
         uriBuilder.setServiceId(device.getId());
         uriBuilder.setProfile("deviceOrientation");
         uriBuilder.setAttribute("onDeviceOrientation");
+        uriBuilder.addParameter("interval", "500");
         mSDK.addEventListener(uriBuilder.build(), mEventListener);
     }
 
@@ -185,7 +223,7 @@ public class SampleService extends Service {
      * @param event イベント
      */
     private void notifyEvent(final DConnectEventMessage event) {
-        Intent intent = new Intent(ACTION_EVENT);
+        Intent intent = new Intent(ACTION_NOTIFY_EVENT);
         intent.putExtra(EXTRA_EVENT, event);
         sendLocalBroadcast(intent);
     }
@@ -219,6 +257,76 @@ public class SampleService extends Service {
 
         public String getName() {
             return mName;
+        }
+    }
+
+    private static class DConnectPath {
+        private final String mApiName;
+        private final String mProfileName;
+        private final String mInterfaceName;
+        private final String mAttributeName;
+
+        DConnectPath(final String apiName, final String profileName,
+                     final String interfaceName, final String attributeName) {
+            mApiName = apiName;
+            mProfileName = profileName;
+            mInterfaceName = interfaceName;
+            mAttributeName = attributeName;
+        }
+
+        public String getApiName() {
+            return mApiName;
+        }
+
+        public String getProfileName() {
+            return mProfileName;
+        }
+
+        public String getInterfaceName() {
+            return mInterfaceName;
+        }
+
+        public String getAttributeName() {
+            return mAttributeName;
+        }
+
+        public String getSubPath() {
+            if (mInterfaceName != null) {
+                return "/" + mInterfaceName + "/" + mAttributeName;
+            } else {
+                return "/" + mAttributeName;
+            }
+        }
+
+        static DConnectPath parse(final String path) {
+            if (!path.startsWith("/")) {
+                return null;
+            }
+            final String[] array = path.split("/");
+            if (array.length < 3 || array.length > 5) {
+                return null;
+            }
+            final String apiName = array[1];
+            final String profileName = array[2];
+            final String interfaceName;
+            final String attributeName;
+            switch (array.length) {
+                case 3:
+                    interfaceName = null;
+                    attributeName = null;
+                    break;
+                case 4:
+                    interfaceName = null;
+                    attributeName = array[3];
+                    break;
+                case 5:
+                    interfaceName = array[3];
+                    attributeName = array[4];
+                    break;
+                default:
+                    return null;
+            }
+            return new DConnectPath(apiName, profileName, interfaceName, attributeName);
         }
     }
 }
