@@ -18,15 +18,29 @@ import java.util.List;
 import java.util.logging.Logger;
 
 
+/**
+ * Device Web API Managerからデバイスのデータを取得するクラス.
+ */
 public class SampleService extends Service {
 
     static final String ACTION_EVENT = "jp.gclue.deviceconnect.android.app.sample.action.EVENT";
+
     static final String EXTRA_EVENT = "event";
 
+    /**
+     * Device Connect SDK for Androidのインスタンス.
+     */
     private DConnectSDK mSDK;
 
+    /**
+     * Device Web API Managerと通信するスレッド.
+     */
     private Thread mThread;
 
+    /**
+     * Device Web API Managerからのイベントを受信するリスナー.
+     * イベントを受信した祭、{@link SampleActivity} へそのまま転送する.
+     */
     private final DConnectSDK.OnEventListener mEventListener = new DConnectSDK.OnEventListener() {
         @Override
         public void onMessage(final DConnectEventMessage event) {
@@ -46,6 +60,7 @@ public class SampleService extends Service {
     public void onCreate() {
         super.onCreate();
 
+        // SDKの初期化.
         mSDK = DConnectSDKFactory.create(getApplicationContext(), DConnectSDKFactory.Type.HTTP);
         mSDK.setOrigin(getPackageName());
 
@@ -55,13 +70,21 @@ public class SampleService extends Service {
                 Device targetDevice = acquireTargetService("deviceOrientation");
                 log("Target device is found: serviceId = " + targetDevice.getName());
 
-                openWebSocket();
+                connectWebSocket();
                 requestEvent(targetDevice);
             }
         });
         mThread.start();
     }
 
+    /**
+     * ServiceDiscoveryを実行し、使用したいデバイスの情報をサービス一覧より取得する.
+     *
+     * サービス一覧に使用したいデバイスが含まれていない場合、サービス一覧に追加されるまでスレッドをブロックする.
+     *
+     * @param profileName プロファイル名
+     * @return デバイス情報
+     */
     private Device acquireTargetService(final String profileName) {
         waitManagerStart();
         log("Manager is available.");
@@ -89,6 +112,9 @@ public class SampleService extends Service {
         }
     }
 
+    /**
+     * Device Web API Managerが起動するまでスレッドをブロックする.
+     */
     private void waitManagerStart() {
         while (true) {
             DConnectResponseMessage response = mSDK.availability();
@@ -98,7 +124,10 @@ public class SampleService extends Service {
         }
     }
 
-    private void openWebSocket() {
+    /**
+     * Device Web API ManagerのWebSocketサーバに接続する.
+     */
+    private void connectWebSocket() {
         mSDK.connectWebSocket(new DConnectSDK.OnWebSocketListener() {
             @Override
             public void onOpen() {
@@ -135,6 +164,11 @@ public class SampleService extends Service {
         return false;
     }
 
+    /**
+     * Device Web API Managerに対してイベント登録要求を送信する.
+     *
+     * @param device デバイス情報
+     */
     private void requestEvent(final Device device) {
         DConnectSDK.URIBuilder uriBuilder = mSDK.createURIBuilder();
         uriBuilder.setServiceId(device.getId());
@@ -143,6 +177,13 @@ public class SampleService extends Service {
         mSDK.addEventListener(uriBuilder.build(), mEventListener);
     }
 
+    /**
+     * Device Web API Managerから通知されたイベントをサンプルアプリ内でブロードキャストする.
+     *
+     * 実際には、{@link SampleActivity} に対して転送される.
+     *
+     * @param event イベント
+     */
     private void notifyEvent(final DConnectEventMessage event) {
         Intent intent = new Intent(ACTION_EVENT);
         intent.putExtra(EXTRA_EVENT, event);
