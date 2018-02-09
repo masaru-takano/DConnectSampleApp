@@ -23,7 +23,7 @@ import java.util.logging.Logger;
 /**
  * {@link SampleService} の取得したデータを表示する画面.
  */
-public class SampleActivity extends AppCompatActivity {
+public class SampleActivity extends AppCompatActivity implements Constants {
 
     /**
      * リクエストするAPIのパス名.
@@ -38,7 +38,16 @@ public class SampleActivity extends AppCompatActivity {
     private final BroadcastReceiver mLocalBroadcastReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(final Context context, final Intent intent) {
-            if (SampleService.ACTION_NOTIFY_EVENT.equals(intent.getAction())) {
+            if (ACTION_NOTIFY_WAITING_MANAGER.equals(intent.getAction())) {
+                log("Waiting until Device Web API Manager become available...");
+            } else if (ACTION_NOTIFY_MANAGER_AVAILABLE.equals(intent.getAction())) {
+                log("Device Web API Manager is available.");
+            } else if (ACTION_NOTIFY_WAITING_SERVICE.equals(intent.getAction())) {
+                log("Waiting until service which supports '" + EVENT_API_PATH + "'");
+            } else if (ACTION_NOTIFY_SERVICE_AVAILABLE.equals(intent.getAction())) {
+                String name = intent.getStringExtra(EXTRA_SERVICE_NAME);
+                log("Service is available: name = " + name);
+            } else if (ACTION_NOTIFY_EVENT.equals(intent.getAction())) {
                 DConnectEventMessage event = (DConnectEventMessage) intent.getSerializableExtra(SampleService.EXTRA_EVENT);
 
                 // PUT /gotapi/deviceOrientation/onDeviceOrientation で定義されているイベントの内容を解析.
@@ -49,8 +58,8 @@ public class SampleActivity extends AppCompatActivity {
                 float z = acceleration.getFloat("z");
 
                 log("x = " + String.format(Locale.ENGLISH, "%.2f", x) + ", " +
-                    "y = " + String.format(Locale.ENGLISH, "%.2f", y) + ", " +
-                    "z = " + String.format(Locale.ENGLISH, "%.2f", z));
+                        "y = " + String.format(Locale.ENGLISH, "%.2f", y) + ", " +
+                        "z = " + String.format(Locale.ENGLISH, "%.2f", z));
             }
         }
     };
@@ -61,7 +70,11 @@ public class SampleActivity extends AppCompatActivity {
     private final IntentFilter mIntentFilter;
     {
         mIntentFilter = new IntentFilter();
-        mIntentFilter.addAction(SampleService.ACTION_NOTIFY_EVENT);
+        mIntentFilter.addAction(ACTION_NOTIFY_EVENT);
+        mIntentFilter.addAction(ACTION_NOTIFY_WAITING_MANAGER);
+        mIntentFilter.addAction(ACTION_NOTIFY_MANAGER_AVAILABLE);
+        mIntentFilter.addAction(ACTION_NOTIFY_WAITING_SERVICE);
+        mIntentFilter.addAction(ACTION_NOTIFY_SERVICE_AVAILABLE);
     }
 
     /**
@@ -97,8 +110,8 @@ public class SampleActivity extends AppCompatActivity {
         mLocalBroadcast.registerReceiver(mLocalBroadcastReceiver, mIntentFilter);
 
         Intent intent = new Intent(getApplicationContext(), SampleService.class);
-        intent.setAction(SampleService.ACTION_REQUEST_EVENT);
-        intent.putExtra(SampleService.EXTRA_PATH, EVENT_API_PATH);
+        intent.setAction(ACTION_REQUEST_EVENT);
+        intent.putExtra(EXTRA_PATH, EVENT_API_PATH);
         startService(intent);
     }
 

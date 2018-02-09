@@ -21,17 +21,19 @@ import java.util.logging.Logger;
 
 
 /**
- * Device Web API Managerからデバイスのデータを取得するクラス.
+ * Device Web API Managerからデバイスのデータを自動的に取得する{@link Service}.
+ *
+ * {@link SampleActivity}によって起動される.
+ *
+ * 起動時に下記の処理を順に実行する.
+ * 1. Device Web API Managerの起動確認.
+ * 2. Service Discovery実行.
+ * 3. {@link SampleActivity} から指定されたAPIをサポートするサービスを検索.
+ * 4. 3のサービスに対してイベント開始要求送信.
+ * 5. 受信したイベントの内容解析.
+ * 6. 解析結果を {@link SampleActivity} へブロードキャスト.
  */
-public class SampleService extends Service {
-
-    static final String ACTION_REQUEST_EVENT = "jp.gclue.deviceconnect.android.app.sample.action.REQUEST_EVENT";
-
-    static final String EXTRA_PATH = "path";
-
-    static final String ACTION_NOTIFY_EVENT = "jp.gclue.deviceconnect.android.app.sample.action.EVENT";
-
-    static final String EXTRA_EVENT = "event";
+public class SampleService extends Service implements Constants {
 
     /**
      * Device Connect SDK for Androidのインスタンス.
@@ -122,6 +124,8 @@ public class SampleService extends Service {
      * @return デバイス情報
      */
     private Device acquireTargetService(final DConnectPath path) {
+        sendLocalBroadcast(new Intent(ACTION_NOTIFY_WAITING_SERVICE));
+
         try {
             while (!Thread.interrupted()) {
                 DConnectResponseMessage response = mSDK.serviceDiscovery();
@@ -137,6 +141,10 @@ public class SampleService extends Service {
                             String name = service.getString(ServiceDiscoveryProfileConstants.PARAM_NAME);
                             if (serviceId != null && name != null) {
                                 if (isSupported(serviceId, path)) {
+                                    Intent intent = new Intent(ACTION_NOTIFY_SERVICE_AVAILABLE);
+                                    intent.putExtra(EXTRA_SERVICE_NAME, name);
+                                    sendLocalBroadcast(intent);
+
                                     return new Device(serviceId, name);
                                 }
                             }
@@ -156,12 +164,16 @@ public class SampleService extends Service {
      * Device Web API Managerが起動するまでスレッドをブロックする.
      */
     private void waitManagerStart() {
+        sendLocalBroadcast(new Intent(ACTION_NOTIFY_WAITING_MANAGER));
+
         while (true) {
             DConnectResponseMessage response = mSDK.availability();
             if (response.getResult() == DConnectMessage.RESULT_OK) {
                 break;
             }
         }
+
+        sendLocalBroadcast(new Intent(ACTION_NOTIFY_MANAGER_AVAILABLE));
     }
 
     /**
